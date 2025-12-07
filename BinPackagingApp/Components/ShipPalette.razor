@@ -1,0 +1,87 @@
+@using BinPackingApp.Core.Models
+@using Microsoft.AspNetCore.Components.Web
+@inject IJSRuntime JS
+
+<div class="ship-palette">
+    <h3>Available Vessels</h3>
+    <div class="ship-list">
+        @foreach (var ship in UnplacedShips)
+        {
+            @for (int i = 0; i < ship.RemainingCount; i++)
+            {
+                <div class="ship-item"
+                     draggable="true"
+                     @ondragstart="@((DragEventArgs e) => HandleDragStart(e, ship))"
+                     @ondragend="@((DragEventArgs e) => HandleDragEnd(e))"
+                     @onclick="@(() => OnShipSelected.InvokeAsync(ship))"
+                     @ondblclick="@(() => OnShipRotated?.Invoke(ship))"
+                     title="@ship.Designation (@GetDisplayWidth(ship) × @GetDisplayHeight(ship)) - Double-click to rotate">
+                    <div class="ship-preview"
+                         style="width: @(GetDisplayWidth(ship) * 20)px;
+                                        height: @(GetDisplayHeight(ship) * 20)px;
+                                        background-color: @GetShipColor(ship.Designation);">
+                        <div class="ship-preview-label">@ship.Designation</div>
+                        <div class="ship-preview-dimensions">@GetDisplayWidth(ship) × @GetDisplayHeight(ship)</div>
+                        @if (ship.IsRotated)
+                        {
+                            <div class="ship-rotated-indicator">↻</div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+    @if (UnplacedShips.Count > 0 && UnplacedShips.All(s => s.RemainingCount == 0))
+    {
+        <div class="alert alert-success mt-3">
+            All vessels have been placed!
+        </div>
+    }
+    else if (UnplacedShips.Count == 0)
+    {
+        <div class="alert alert-warning mt-3">
+            No vessels available. Please load fleet data.
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<UnplacedShip> UnplacedShips { get; set; } = new();
+    [Parameter] public EventCallback<UnplacedShip> OnShipSelected { get; set; }
+    [Parameter] public Action<UnplacedShip>? OnDragStart { get; set; }
+    [Parameter] public Action<UnplacedShip>? OnShipRotated { get; set; }
+    [Parameter] public EventCallback OnDragEnd { get; set; }
+
+    private void HandleDragStart(DragEventArgs e, UnplacedShip ship)
+    {
+        e.DataTransfer.EffectAllowed = "copy";
+        JS.InvokeVoidAsync("setDragData", e, ship.Designation);
+        OnDragStart?.Invoke(ship);
+    }
+
+    private async Task HandleDragEnd(DragEventArgs e)
+    {
+        if (OnDragEnd.HasDelegate)
+        {
+            await OnDragEnd.InvokeAsync();
+        }
+    }
+
+    private int GetDisplayWidth(UnplacedShip ship)
+    {
+        return ship.IsRotated ? ship.Dimensions.Height : ship.Dimensions.Width;
+    }
+
+    private int GetDisplayHeight(UnplacedShip ship)
+    {
+        return ship.IsRotated ? ship.Dimensions.Width : ship.Dimensions.Height;
+    }
+
+    private string GetShipColor(string designation)
+    {
+        var hash = designation.GetHashCode();
+        var hue = Math.Abs(hash % 360);
+        return $"hsl({hue}, 70%, 60%)";
+    }
+}
+

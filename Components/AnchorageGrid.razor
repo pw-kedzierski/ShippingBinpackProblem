@@ -1,0 +1,207 @@
+@using BinPackingApp.Core.Models
+@using Microsoft.AspNetCore.Components.Web
+@inject IJSRuntime JSRuntime
+
+<div class="anchorage-grid-container">
+    <h4>Anchorage (@AnchorageWidth × @AnchorageHeight)</h4>
+    <div class="anchorage-grid @(isDragging ? "dragging" : "")" 
+         id="@gridElementId"
+         style="grid-template-columns: repeat(@AnchorageWidth, 1fr); 
+                grid-template-rows: repeat(@AnchorageHeight, 1fr);"
+         @ondrop:preventDefault="true"
+         @ondrop="@HandleDrop"
+         @ondragover:preventDefault="true"
+         @ondragover="@HandleDragOver"
+         @ondragleave="@HandleDragLeave"
+         @ondragenter="@HandleDragEnter">
+        @for (int y = 0; y < AnchorageHeight; y++)
+        {
+            @for (int x = 0; x < AnchorageWidth; x++)
+            {
+                var cellX = x;
+                var cellY = y;
+                <div class="grid-cell" 
+                     data-x="@cellX" 
+                     data-y="@cellY"
+                     @ondrop:preventDefault="true"
+                     @ondrop="@((DragEventArgs e) => HandleCellDrop(e, cellX, cellY))"
+                     @ondragover:preventDefault="true"></div>
+            }
+        }
+        
+        @foreach (var ship in PlacedShips)
+        {
+            <div class="placed-ship"
+                 style="grid-column: @(ship.X + 1) / span @ship.ActualWidth;
+                        grid-row: @(ship.Y + 1) / span @ship.ActualHeight;
+                        background-color: @GetShipColor(ship.Designation);"
+                 draggable="true"
+                 @ondragstart="@((DragEventArgs e) => HandleShipDragStart(e, ship))"
+                 @ondragend="@HandleShipDragEnd"
+                 @ondragover:preventDefault="true"
+                 @ondrop:preventDefault="true"
+                 @ondrop="@((DragEventArgs e) => HandleDropOnPlacedShip(e))"
+                 @ondblclick="@(() => HandleShipDoubleClick(ship.Id))"
+                 title="@ship.Designation (@ship.Dimensions.Width × @ship.Dimensions.Height) @(ship.IsRotated ? "Rotated" : "")">
+                <div class="ship-label">@ship.Designation</div>
+                <div class="ship-dimensions">@ship.ActualWidth × @ship.ActualHeight</div>
+                <button class="ship-remove-btn" 
+                        @onclick="@(() => OnShipRemoved.InvokeAsync(ship.Id))"
+                        @onclick:stopPropagation="true"
+                        title="Remove ship">
+                    ×
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+
+    [Parameter] public int AnchorageWidth { get; set; }
+    [Parameter] public int AnchorageHeight { get; set; }
+    [Parameter] public List<PlacedShip> PlacedShips { get; set; } = new();
+    [Parameter] public EventCallback<PlacedShip> OnShipPlaced { get; set; }
+    [Parameter] public EventCallback<int> OnShipRemoved { get; set; }
+    [Parameter] public EventCallback<int> OnShipRotated { get; set; }
+    [Parameter] public UnplacedShip? DraggedUnplacedShip { get; set; }
+
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        localDraggedUnplacedShip = DraggedUnplacedShip;
+    }
+
+    private string gridElementId = "anchorage-grid-" + Guid.NewGuid().ToString("N")[..8];
+    private PlacedShip? draggedPlacedShip;
+    private UnplacedShip? localDraggedUnplacedShip;
+    private bool isDragging = false;
+
+    private async Task HandleDropOnPlacedShip(DragEventArgs e)
+    {
+        await HandleDrop(e);
+    }
+
+    private async Task HandleCellDrop(DragEventArgs e, int cellX, int cellY)
+    {
+        await HandleDropAtPosition(cellX, cellY);
+    }
+
+    private async Task HandleDrop(DragEventArgs e)
+    {
+        try
+        {
+            var position = await JSRuntime.InvokeAsync<int[]>("getGridPosition", 
+                gridElementId, e.ClientX, e.ClientY, AnchorageWidth, AnchorageHeight);
+
+            if (position == null || position.Length != 2)
+            {
+                ResetDragState();
+                return;
+            }
+
+            await HandleDropAtPosition(position[0], position[1]);
+        }
+        catch (Exception)
+        {
+            ResetDragState();
+        }
+    }
+
+    private async Task HandleDropAtPosition(int x, int y)
+    {
+        var currentDraggedPlacedShip = draggedPlacedShip;
+        var currentDraggedUnplacedShip = localDraggedUnplacedShip ?? DraggedUnplacedShip;
+
+        if (currentDraggedPlacedShip != null)
+        {
+            var movedShip = new PlacedShip
+            {
+                Id = currentDraggedPlacedShip.Id,
+                Dimensions = currentDraggedPlacedShip.Dimensions,
+                Designation = currentDraggedPlacedShip.Designation,
+                X = x,
+                Y = y,
+                IsRotated = currentDraggedPlacedShip.IsRotated
+            };
+
+            await OnShipRemoved.InvokeAsync(currentDraggedPlacedShip.Id);
+            await OnShipPlaced.InvokeAsync(movedShip);
+            ResetDragState();
+            return;
+        }
+
+        if (currentDraggedUnplacedShip != null && currentDraggedUnplacedShip.RemainingCount > 0)
+        {
+            var newShip = new PlacedShip
+            {
+                Id = 0,
+                Dimensions = currentDraggedUnplacedShip.Dimensions,
+                Designation = currentDraggedUnplacedShip.Designation,
+                X = x,
+                Y = y,
+                IsRotated = currentDraggedUnplacedShip.IsRotated
+            };
+
+            await OnShipPlaced.InvokeAsync(newShip);
+            localDraggedUnplacedShip = null;
+            ResetDragState();
+        }
+        else
+        {
+            ResetDragState();
+        }
+    }
+
+    private void ResetDragState()
+    {
+        draggedPlacedShip = null;
+        localDraggedUnplacedShip = null;
+        isDragging = false;
+        StateHasChanged();
+    }
+
+    private void HandleDragLeave(DragEventArgs e)
+    {
+        isDragging = false;
+        StateHasChanged();
+    }
+
+    protected override void OnParametersSet()
+    {
+        localDraggedUnplacedShip = DraggedUnplacedShip;
+    }
+
+    private void HandleDragEnter(DragEventArgs e)
+    {
+        isDragging = true;
+        StateHasChanged();
+    }
+
+    private void HandleShipDragStart(DragEventArgs e, PlacedShip ship)
+    {
+        e.DataTransfer.EffectAllowed = "move";
+        draggedPlacedShip = ship;
+    }
+
+    private async Task HandleShipDragEnd(DragEventArgs e)
+    {
+        await Task.Delay(50);
+        draggedPlacedShip = null;
+        isDragging = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleShipDoubleClick(int shipId)
+    {
+        await OnShipRotated.InvokeAsync(shipId);
+    }
+
+    private string GetShipColor(string designation)
+    {
+        var hash = designation.GetHashCode();
+        var hue = Math.Abs(hash % 360);
+        return $"hsl({hue}, 70%, 60%)";
+    }
+}
+

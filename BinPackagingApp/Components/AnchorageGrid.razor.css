@@ -1,0 +1,113 @@
+.anchorage-grid-container {
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 0.5rem;
+    border: 2px solid #dee2e6;
+}
+
+.anchorage-grid-container h4 {
+    margin-bottom: 1rem;
+    color: #495057;
+}
+
+.anchorage-grid {
+    display: grid;
+    gap: 2px;
+    background-color: #e9ecef;
+    border: 2px solid #495057;
+    padding: 2px;
+    min-height: 400px;
+    max-height: 80vh;
+    max-width: 100%;
+    overflow: auto;
+    position: relative;
+    width: 100%;
+    height: auto;
+}
+
+.grid-cell {
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    aspect-ratio: 1;
+    min-height: 15px;
+    max-height: 30px;
+    z-index: 1;
+    pointer-events: auto;
+}
+
+.placed-ship {
+    background-color: #4a90e2;
+    border: 2px solid #2c5aa0;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: move;
+    position: relative;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: transform 0.1s ease;
+    z-index: 2;
+    pointer-events: auto;
+}
+
+/* Allow grid cells to receive drop events even when covered by ships */
+.anchorage-grid.dragging .placed-ship {
+    pointer-events: none;
+}
+
+.anchorage-grid.dragging .grid-cell {
+    pointer-events: auto;
+}
+
+.placed-ship:hover {
+    transform: scale(1.02);
+    z-index: 10;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.ship-label {
+    font-weight: bold;
+    font-size: 0.85rem;
+    color: white;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    text-align: center;
+    padding: 2px;
+}
+
+.ship-dimensions {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.ship-remove-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    background-color: rgba(220, 53, 69, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.placed-ship:hover .ship-remove-btn {
+    opacity: 1;
+}
+
+.ship-remove-btn:hover {
+    background-color: #dc3545;
+    transform: scale(1.1);
+}
+

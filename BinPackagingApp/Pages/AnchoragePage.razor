@@ -1,0 +1,338 @@
+@page "/"
+@using BinPackingApp.Core.Models
+@using BinPackingApp.Core.Services
+@inject IFleetApiService FleetApiService
+@inject IBinPackService BinPackService
+@implements IDisposable
+
+<PageTitle>Anchorage Bin Packing</PageTitle>
+
+<div class="container-fluid p-4">
+    <div class="row">
+        <div class="col-12 mb-3">
+            <h1 class="display-4">Anchorage Bin Packing</h1>
+            <p class="lead">Drag and drop vessels into the anchorage. Double-click to rotate.</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (anchorageResponse != null)
+    {
+        <div class="row">
+            <div class="col-md-8">
+                <AnchorageGrid AnchorageWidth="@anchorageResponse.AnchorageSize.Width"
+                               AnchorageHeight="@anchorageResponse.AnchorageSize.Height"
+                               PlacedShips="@placedShips"
+                               OnShipPlaced="@HandleShipPlaced"
+                               OnShipRemoved="@HandleShipRemoved"
+                               OnShipRotated="@HandleShipRotated"
+                               DraggedUnplacedShip="@draggedUnplacedShip" />
+            </div>
+            <div class="col-md-4">
+                <ShipPalette UnplacedShips="@unplacedShips"
+                             OnShipSelected="@HandleShipSelected"
+                             OnDragStart="@HandleUnplacedShipDragStart"
+                             OnShipRotated="@HandleUnplacedShipRotated"
+                             OnDragEnd="@(() => HandleUnplacedShipDragEnd())" />
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <strong>Status:</strong>
+                    @GetPlacedCount() vessel(s) placed,
+                    @GetRemainingCount() vessel(s) remaining
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <button class="btn btn-primary btn-lg" @onclick="LoadNewFleet">
+                    Try again!
+                </button>
+            </div>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @errorMessage
+        </div>
+        <button class="btn btn-primary" @onclick="LoadNewFleet">
+            Try again!
+        </button>
+    }
+    else
+    {
+        <div class="alert alert-warning">
+            No data available. Click "Try again!" to load a new fleet.
+        </div>
+        <button class="btn btn-primary" @onclick="LoadNewFleet">
+            Try again!
+        </button>
+    }
+</div>
+
+@code {
+    private AnchorageResponse? anchorageResponse;
+    private List<PlacedShip> placedShips = new();
+    private List<UnplacedShip> unplacedShips = new();
+    private bool isLoading = false;
+    private int nextShipId = 1;
+    private PlacedShip? selectedShip;
+    private UnplacedShip? draggedUnplacedShip;
+    private string? errorMessage;
+    private bool isPlacingShip = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNewFleet();
+    }
+
+    private async Task LoadNewFleet()
+    {
+        isLoading = true;
+        errorMessage = null;
+        anchorageResponse = null;
+        StateHasChanged();
+
+        try
+        {
+            anchorageResponse = await FleetApiService.GetRandomFleetAsync();
+
+            if (anchorageResponse == null)
+            {
+                errorMessage = "Received null response from API";
+                return;
+            }
+
+            if (anchorageResponse.Fleets == null || anchorageResponse.Fleets.Count == 0)
+            {
+                errorMessage = "No fleets in the response";
+                return;
+            }
+
+            placedShips.Clear();
+            unplacedShips = anchorageResponse.Fleets
+                .Select(f => new UnplacedShip
+                {
+                    Dimensions = f.SingleShipDimensions,
+                    Designation = f.ShipDesignation,
+                    RemainingCount = f.ShipCount,
+                    IsRotated = false
+                })
+                .ToList();
+
+            nextShipId = 1;
+            selectedShip = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading fleet: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleShipSelected(UnplacedShip ship)
+    {
+        if (ship.RemainingCount > 0)
+        {
+            var newShip = new PlacedShip
+            {
+                Id = nextShipId++,
+                Dimensions = ship.Dimensions,
+                Designation = ship.Designation,
+                X = 0,
+                Y = 0,
+                IsRotated = false
+            };
+            selectedShip = newShip;
+        }
+    }
+
+    private void HandleUnplacedShipDragStart(UnplacedShip ship)
+    {
+        draggedUnplacedShip = ship;
+        isPlacingShip = false;
+        StateHasChanged();
+    }
+
+    private void HandleUnplacedShipRotated(UnplacedShip ship)
+    {
+        if (anchorageResponse != null)
+        {
+            var rotatedWidth = ship.IsRotated ? ship.Dimensions.Width : ship.Dimensions.Height;
+            var rotatedHeight = ship.IsRotated ? ship.Dimensions.Height : ship.Dimensions.Width;
+
+            if (rotatedHeight > anchorageResponse.AnchorageSize.Height)
+            {
+                return;
+            }
+        }
+
+        ship.IsRotated = !ship.IsRotated;
+        StateHasChanged();
+    }
+
+    private async Task HandleUnplacedShipDragEnd()
+    {
+        await Task.Delay(100);
+        if (draggedUnplacedShip != null && !isPlacingShip)
+        {
+            draggedUnplacedShip = null;
+            StateHasChanged();
+        }
+    }
+
+    private void HandleShipPlaced(PlacedShip ship)
+    {
+        isPlacingShip = true;
+
+        if (anchorageResponse == null)
+        {
+            draggedUnplacedShip = null;
+            isPlacingShip = false;
+            StateHasChanged();
+            return;
+        }
+
+        if (ship.Id == 0)
+        {
+            ship.Id = nextShipId++;
+        }
+
+        if (!ship.IsWithinBounds(anchorageResponse.AnchorageSize.Width, anchorageResponse.AnchorageSize.Height))
+        {
+            draggedUnplacedShip = null;
+            isPlacingShip = false;
+            StateHasChanged();
+            return;
+        }
+
+        PlacedShip? collision = null;
+        foreach (var placed in placedShips)
+        {
+            if (placed.Id != ship.Id && ship.Intersects(placed))
+            {
+                collision = placed;
+                break;
+            }
+        }
+
+        if (collision != null)
+        {
+            draggedUnplacedShip = null;
+            isPlacingShip = false;
+            StateHasChanged();
+            return;
+        }
+
+        BinPackService.PlaceShip(ship, placedShips);
+
+        var existingShip = placedShips.FirstOrDefault(s => s.Id == ship.Id);
+        if (existingShip == null || !placedShips.Any(s => s.Id == ship.Id && s != existingShip))
+        {
+            var unplaced = unplacedShips.FirstOrDefault(u =>
+                u.Designation == ship.Designation &&
+                u.Dimensions.Width == ship.Dimensions.Width &&
+                u.Dimensions.Height == ship.Dimensions.Height);
+
+            if (unplaced != null && unplaced.RemainingCount > 0)
+            {
+                unplaced.RemainingCount--;
+            }
+        }
+
+        selectedShip = null;
+        draggedUnplacedShip = null;
+        isPlacingShip = false;
+        StateHasChanged();
+    }
+
+    private void HandleShipRemoved(int shipId)
+    {
+        var ship = placedShips.FirstOrDefault(s => s.Id == shipId);
+        if (ship != null)
+        {
+            BinPackService.RemoveShip(shipId, placedShips);
+
+            var unplaced = unplacedShips.FirstOrDefault(u =>
+                u.Designation == ship.Designation &&
+                u.Dimensions.Width == ship.Dimensions.Width &&
+                u.Dimensions.Height == ship.Dimensions.Height);
+
+            if (unplaced != null)
+            {
+                unplaced.RemainingCount++;
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    private void HandleShipRotated(int shipId)
+    {
+        var ship = placedShips.FirstOrDefault(s => s.Id == shipId);
+        if (ship != null)
+        {
+            var originalIsRotated = ship.IsRotated;
+            var originalX = ship.X;
+            var originalY = ship.Y;
+
+            ship.IsRotated = !ship.IsRotated;
+
+            if (!ship.IsWithinBounds(anchorageResponse!.AnchorageSize.Width, anchorageResponse.AnchorageSize.Height))
+            {
+                if (ship.X + ship.ActualWidth > anchorageResponse.AnchorageSize.Width)
+                {
+                    ship.X = Math.Max(0, anchorageResponse.AnchorageSize.Width - ship.ActualWidth);
+                }
+                if (ship.Y + ship.ActualHeight > anchorageResponse.AnchorageSize.Height)
+                {
+                    ship.Y = Math.Max(0, anchorageResponse.AnchorageSize.Height - ship.ActualHeight);
+                }
+            }
+
+            if (!BinPackService.CanPlaceShip(ship, placedShips,
+                anchorageResponse.AnchorageSize.Width,
+                anchorageResponse.AnchorageSize.Height))
+            {
+                ship.IsRotated = originalIsRotated;
+                ship.X = originalX;
+                ship.Y = originalY;
+            }
+            else
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private int GetPlacedCount()
+    {
+        return placedShips.Count;
+    }
+
+    private int GetRemainingCount()
+    {
+        return unplacedShips.Sum(u => u.RemainingCount);
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
